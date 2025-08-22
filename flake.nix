@@ -16,9 +16,7 @@
       ];
       perSystem =
         {
-          inputs',
           pkgs,
-          system,
           ...
         }:
         let
@@ -27,8 +25,14 @@
         {
           devShells.default = pkgs.mkShell {
             packages = with pkgs; [
+              (pkgs.haskellPackages.ghcWithPackages (ps: with ps; [
+                network
+              ]))              
               ghc
               haskell-language-server
+              cabal-install
+              hlint
+              python3
             ];
           };
         };

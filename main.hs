@@ -34,15 +34,15 @@ port = "8231"
 
 
 main :: IO ()
-main = do 
-  args <- getArgs 
+main = do
+  args <- getArgs
   case args of
       [] -> putStrLn "Usage: program <gen|serve>"
       ("serve":_) -> do
           conn <- SQL.open "penger.db"
           alive <- checkDBAlive conn
           if alive
-            then do 
+            then do
               putStrLn "Connected to database"
               hasActivationTable <- ensureActivationTable conn
               if hasActivationTable then do
@@ -51,13 +51,13 @@ main = do
               else do
                 putStrLn "Failed to create activation code table in database"
                 SQL.close conn
-            else putStrLn "Failed to connect to database"        
-      
-      ("gen":_)  -> do 
+            else putStrLn "Failed to connect to database"
+
+      ("gen":_)  -> do
           conn <- SQL.open "penger.db"
           alive <- checkDBAlive conn
           if alive
-            then do 
+            then do
               putStrLn "Connected to database"
               hasActivationTable <- ensureActivationTable conn
               if hasActivationTable then do
@@ -66,13 +66,13 @@ main = do
               else do
                 putStrLn "Failed to create activation code table in database"
                 SQL.close conn
-            else putStrLn "Failed to connect to database"   
-          
+            else putStrLn "Failed to connect to database"
+
       _ -> putStrLn "Unknown command"
 
 
 
- 
+
 
 checkDBAlive :: SQL.Connection -> IO Bool
 checkDBAlive conn = do
@@ -81,7 +81,7 @@ checkDBAlive conn = do
         Left  _ -> return False
         Right _ -> return True
 
-  
+
 ensureActivationTable :: SQL.Connection -> IO Bool
 ensureActivationTable conn = do
     result <- try $ SQL.execute_ conn (DS.fromString "CREATE TABLE IF NOT EXISTS activation_codes (code TEXT PRIMARY KEY, expires_on DATE)") :: IO (Either SomeException ())
@@ -94,20 +94,49 @@ ensureActivationTable conn = do
         return True
 
 createActivationCode :: SQL.Connection -> Int -> IO ()
-createActivationCode conn expires_in = do 
-                                    activationCode <- randomString 16   
-                                    now <- getCurrentTime            
+createActivationCode conn expires_in = do
+                                    activationCode <- genUniqueCode 16
+                                    now <- getCurrentTime
                                     let expires_on = addUTCTime (fromIntegral $ expires_in * 86400) now -- 86400 = seconds in 1 day
-                                    putStrLn $ "Created activation code \"" ++ activationCode ++ "\" which expires on " ++ show expires_on ++ " (" ++  show expires_in ++ ") days"
-                                    return ()
 
-randomString :: Int -> IO String
-randomString n = replicateM n randomChar
-  where 
-    chars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']
-    randomChar = do 
-      i <- randomRIO (0, length chars - 1)
-      return (chars !! i)
+                                    result <- addCodeToDb conn activationCode expires_on
+                                    case result of
+                                      Left err -> do
+                                        putStrLn $ "DB error: " ++ show err
+                                        return ()
+
+                                      Right _ -> do
+                                        putStrLn $ "Created activation code \"" ++ show activationCode ++ "\" which expires on " ++ show expires_on ++ " (" ++  show expires_in ++ ") days"
+                                        return ()
+
+                                  where
+                                    randomString n = replicateM n randomChar
+                                      where
+                                        chars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']
+                                        randomChar = do
+                                          i <- randomRIO (0, length chars - 1)
+                                          return (chars !! i)
+
+                                    genUniqueCode n = do
+                                      activationCode <- randomString 16
+
+                                      result <- try $ SQL.query conn
+                                        (DS.fromString "SELECT code FROM activation_codes WHERE code = (?)")
+                                        (SQL.Only activationCode)
+                                        :: IO (Either SomeException [(String, UTCTime)])
+
+                                      case result of
+                                        Left err -> do
+                                          putStrLn $ "DB error: " ++ show err
+                                          genUniqueCode n
+                                        Right code
+                                          | null code -> return activationCode
+                                          | otherwise -> genUniqueCode n
+
+                                    addCodeToDb conn activationCode expiry = do
+                                                                  try $ SQL.execute conn
+                                                                    (DS.fromString "INSERT INTO activation_codes (code, expires_on) VALUES (?, ?)")
+                                                                    (activationCode, expiry) :: IO (Either SomeException ())
 
 
 runTCPServer :: Maybe HostName -> ServiceName -> (Socket -> IO a) -> IO a
@@ -134,7 +163,7 @@ runTCPServer mhost port handleConn = do
 serve :: SQL.Connection -> Socket -> IO ()
 serve conn socket = do
         msg <- recv socket recvBufferSize
-        unless (S.null msg) $ do 
+        unless (S.null msg) $ do
           let msgStr = S.unpack msg
           response <- handleMsg conn msgStr
           putStrLn "[RESPONSE]"
@@ -177,7 +206,7 @@ handleMsg conn msgStr =
                       let body = init $ unlines $ drop 1 $ dropWhile (/= "\r")  msgLines
                       putStrLn $ "Body: " ++ body
                       case parseBody body of
-                        Nothing ->   
+                        Nothing ->
                           return $ "HTTP/1.1 400 Bad Request\r\n"
                                 ++ "Content-Type: text/plain\r\n"
                                 ++ "\r\n"
@@ -185,19 +214,19 @@ handleMsg conn msgStr =
                         Just (activation, username, password) -> do
                             status <- register conn activation username password
                             case status of
-                                Succes -> 
+                                Succes ->
                                   return $ "HTTP/1.1 200 OK\r\n"
                                         ++ "Content-Type: text/plain\r\n"
                                         ++ "Content-Length: 15\r\n"
                                         ++ "\r\n"
                                         ++ "Registered user"
-                                UserExists ->  
+                                UserExists ->
                                   return $ "HTTP/1.1 403 Conflict\r\n"
                                         ++ "Content-Type: text/plain\r\n"
                                         ++ "Content-Length: 9\r\n"
                                         ++ "\r\n"
                                         ++ "User already exists"
-                                ActivationWrong ->  
+                                ActivationWrong ->
                                   return $ "HTTP/1.1 400 Bad Request\r\n"
                                         ++ "Content-Type: text/plain\r\n"
                                         ++ "Content-Length: 21\r\n"
@@ -223,8 +252,8 @@ handleMsg conn msgStr =
 
 parseBody :: String -> Maybe (String, String, String)
 parseBody [] = Nothing
-parseBody body = 
-    let pairs = splitOn "," (drop 1 $ init body) in 
+parseBody body =
+    let pairs = splitOn "," (drop 1 $ init body) in
     if length pairs < 3
        then Nothing
        else
@@ -232,7 +261,7 @@ parseBody body =
                username   = parsePair $ pairs !! 1
                password   = parsePair $ pairs !! 2
            in Just (activation, username, password)
-            where 
+            where
               parsePair pair = init $ drop 2 $ dropWhile (/=':') pair
 
 data RegisterStatus = Succes | UserExists | ActivationWrong | ActivationExpired | DatabaseError
@@ -240,41 +269,41 @@ data RegisterStatus = Succes | UserExists | ActivationWrong | ActivationExpired 
 
 
 register ::  SQL.Connection -> String -> String -> String -> IO RegisterStatus
-register conn activation username password = 
+register conn activation username password =
   do
     putStrLn $ "Registering user " ++ username ++ " with password " ++ password ++ " and activation code " ++ activation
-    
+
     userRowsResult <- try $ SQL.query_ conn (DS.fromString "SELECT user_id, username FROM users") :: IO (Either SomeException [(Int, String)])
-    
+
     case userRowsResult of
       Left err -> do
           putStrLn $ "DB error: " ++ show err
           return DatabaseError
-      
+
       Right userRows ->
-        if username `elem` map snd userRows 
-          then do 
+        if username `elem` map snd userRows
+          then do
             putStrLn $ "User " ++ username ++ " already exists"
             return UserExists
           else do
-            activationRowsResult <- try $ SQL.query conn 
-              (DS.fromString "SELECT code, expires_on FROM activation_codes WHERE code = ?") 
+            activationRowsResult <- try $ SQL.query conn
+              (DS.fromString "SELECT code, expires_on FROM activation_codes WHERE code = ?")
               (SQL.Only activation) :: IO (Either SomeException [(String, UTCTime)])
-            
-            case activationRowsResult of 
+
+            case activationRowsResult of
               Left err -> do
                 putStrLn $ "DB error: " ++ show err
                 return DatabaseError
-              
+
               Right activationRows ->
                 case activationRows of
                   [] -> do
                       putStrLn $ "Activation code \"" ++ activation ++ "\" not found"
                       return ActivationWrong
                   (_, expires):_ -> do
-                      now <- getCurrentTime            
-                      if expires < now 
-                        then do 
+                      now <- getCurrentTime
+                      if expires < now
+                        then do
                           putStrLn $ "Activation code \"" ++ activation ++ "\" expired"
                           return ActivationExpired
                         else do
@@ -290,7 +319,7 @@ register conn activation username password =
                               putStrLn "Registered user"
                               return Succes
 
-                        
-                        
+
+
 
 

@@ -14,6 +14,10 @@ import qualified Data.String as DS
 import Control.Exception (try, SomeException)
 import qualified Database.SQLite.Simple as SQL
 import Database.SQLite.Simple (Only(..))
+import Data.Time
+import System.Environment (getArgs)
+import Control.Monad
+import System.Random
 
 maxConn :: Int
 maxConn = 1024
@@ -28,23 +32,83 @@ port :: String
 port = "8231"
 
 
+
 main :: IO ()
 main = do 
-  conn <- SQL.open "penger.db"
-  alive <- checkDBAlive conn
-  if alive
-    then do 
-      putStrLn "Connected to database"
-      runTCPServer Nothing port (serve conn)
-      SQL.close conn
-    else putStrLn "Failed to connect to database"
+  args <- getArgs 
+  case args of
+      [] -> putStrLn "Usage: program <gen|serve>"
+      ("serve":_) -> do
+          conn <- SQL.open "penger.db"
+          alive <- checkDBAlive conn
+          if alive
+            then do 
+              putStrLn "Connected to database"
+              hasActivationTable <- ensureActivationTable conn
+              if hasActivationTable then do
+                runTCPServer Nothing port (serve conn)
+                SQL.close conn
+              else do
+                putStrLn "Failed to create activation code table in database"
+                SQL.close conn
+            else putStrLn "Failed to connect to database"        
+      
+      ("gen":_)  -> do 
+          conn <- SQL.open "penger.db"
+          alive <- checkDBAlive conn
+          if alive
+            then do 
+              putStrLn "Connected to database"
+              hasActivationTable <- ensureActivationTable conn
+              if hasActivationTable then do
+                createActivationCode conn 7
+                SQL.close conn
+              else do
+                putStrLn "Failed to create activation code table in database"
+                SQL.close conn
+            else putStrLn "Failed to connect to database"   
+          
+      _ -> putStrLn "Unknown command"
+
+
+
+ 
 
 checkDBAlive :: SQL.Connection -> IO Bool
 checkDBAlive conn = do
     result <- try $ SQL.query_ conn (DS.fromString "SELECT 1") :: IO (Either SomeException [Only Int])
     case result of
-        Left _  -> return False
+        Left  _ -> return False
         Right _ -> return True
+
+  
+ensureActivationTable :: SQL.Connection -> IO Bool
+ensureActivationTable conn = do
+    result <- try $ SQL.execute_ conn (DS.fromString "CREATE TABLE IF NOT EXISTS activation_codes (code TEXT PRIMARY KEY, expires_on DATE)") :: IO (Either SomeException ())
+    case result of
+      Left err -> do
+        putStrLn $ "Failed to ensure activation_codes table: " ++ show err
+        return False
+      Right _ -> do
+        putStrLn "activation_codes table exists"
+        return True
+
+createActivationCode :: SQL.Connection -> Int -> IO ()
+createActivationCode conn expires_in = do 
+                                    activationCode <- randomString 16   
+                                    now <- getCurrentTime            
+                                    let expires_on = addUTCTime (fromIntegral $ expires_in * 86400) now -- 86400 = seconds in 1 day
+                                    putStrLn $ "Created activation code \"" ++ activationCode ++ "\" which expires on " ++ show expires_on ++ " (" ++  show expires_in ++ ") days"
+                                    return ()
+
+randomString :: Int -> IO String
+randomString n = replicateM n randomChar
+  where 
+    chars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']
+    randomChar = do 
+      i <- randomRIO (0, length chars - 1)
+      return (chars !! i)
+
 
 runTCPServer :: Maybe HostName -> ServiceName -> (Socket -> IO a) -> IO a
 runTCPServer mhost port handleConn = do
@@ -171,21 +235,62 @@ parseBody body =
             where 
               parsePair pair = init $ drop 2 $ dropWhile (/=':') pair
 
-data RegisterStatus = Succes | UserExists | ActivationWrong
+data RegisterStatus = Succes | UserExists | ActivationWrong | ActivationExpired | DatabaseError
   deriving (Show, Eq, Enum)
 
 
 register ::  SQL.Connection -> String -> String -> String -> IO RegisterStatus
-register conn activation username password = do
+register conn activation username password = 
+  do
     putStrLn $ "Registering user " ++ username ++ " with password " ++ password ++ " and activation code " ++ activation
     
-    userRows <- SQL.query_ conn (DS.fromString "SELECT user_id, username FROM users") :: IO [(Int, String)]
-    let users = map snd userRows
+    userRowsResult <- try $ SQL.query_ conn (DS.fromString "SELECT user_id, username FROM users") :: IO (Either SomeException [(Int, String)])
+    
+    case userRowsResult of
+      Left err -> do
+          putStrLn $ "DB error: " ++ show err
+          return DatabaseError
+      
+      Right userRows ->
+        if username `elem` map snd userRows 
+          then do 
+            putStrLn $ "User " ++ username ++ " already exists"
+            return UserExists
+          else do
+            activationRowsResult <- try $ SQL.query conn 
+              (DS.fromString "SELECT code, expires_on FROM activation_codes WHERE code = ?") 
+              (SQL.Only activation) :: IO (Either SomeException [(String, UTCTime)])
+            
+            case activationRowsResult of 
+              Left err -> do
+                putStrLn $ "DB error: " ++ show err
+                return DatabaseError
+              
+              Right activationRows ->
+                case activationRows of
+                  [] -> do
+                      putStrLn $ "Activation code \"" ++ activation ++ "\" not found"
+                      return ActivationWrong
+                  (_, expires):_ -> do
+                      now <- getCurrentTime            
+                      if expires < now 
+                        then do 
+                          putStrLn $ "Activation code \"" ++ activation ++ "\" expired"
+                          return ActivationExpired
+                        else do
+                          putStrLn $ "Activation code \"" ++ activation ++ "\" is valid, creating user..."
+                          result <- try $ SQL.execute conn
+                            (DS.fromString "INSERT INTO users (username, password) VALUES (?, ?)")
+                            (username, password) :: IO (Either SomeException ())
+                          case result of
+                            Left err -> do
+                              putStrLn $ "DB error: " ++ show err
+                              return DatabaseError
+                            Right _ -> do
+                              putStrLn "Registered user"
+                              return Succes
 
-    if username `elem` users 
-      then do
-        putStrLn $ "User " ++ username ++ " already exists"
-        return UserExists
-      else
+                        
+                        
 
-        return Succes
+

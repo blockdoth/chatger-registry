@@ -27,6 +27,8 @@
             packages = with pkgs; [
               (pkgs.haskellPackages.ghcWithPackages (ps: with ps; [
                 network
+                split
+                sqlite-simple
               ]))              
               ghc
               haskell-language-server

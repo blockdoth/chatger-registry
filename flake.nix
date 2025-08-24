@@ -14,14 +14,7 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      perSystem =
-        {
-          pkgs,
-          ...
-        }:
-        let
-
-        in
+      perSystem ={ pkgs, ... }:
         {
           devShells.default = pkgs.mkShell {
             packages = with pkgs; [
@@ -33,11 +26,32 @@
               ]))              
               ghc
               haskell-language-server
-              cabal-install
               hlint
-              python3
             ];
           };
-        };
+          packages.default = pkgs.stdenv.mkDerivation {
+            pname = "regger";
+            version = "0.0.1";
+            src = ./.;
+
+            buildInputs = [
+              (pkgs.haskellPackages.ghcWithPackages (ps: with ps; [
+                network
+                split
+                sqlite-simple
+                cryptonite
+              ]))       
+            ];
+
+            buildPhase = ''
+              ghc -threaded -O2 -o regger main.hs
+            '';
+
+            installPhase = ''
+              mkdir -p $out/bin
+              cp regger $out/bin/
+            '';
+          };
+      };        
     };
 }

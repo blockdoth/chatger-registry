@@ -60,10 +60,10 @@ main = do
 withDB :: String -> (SQL.Connection -> IO ()) -> IO ()
 withDB dbPath action = do
   exists <- doesFileExist dbPath
-  
-  if not exists 
+
+  if not exists
     then putStrLn $ "Database not found at " ++ dbPath
-    else do 
+    else do
       conn  <- SQL.open dbPath
       alive <- checkDBAlive conn
 
@@ -74,7 +74,7 @@ withDB dbPath action = do
           ok <- ensureDnStructure conn
           if ok then action conn else putStrLn "Failed to create activation code table in database"
       SQL.close conn
-  
+
   where
     checkDBAlive conn = do
       result <- try $ SQL.query_ conn (DS.fromString "SELECT 1") :: IO (Either SomeException [Only Int])
@@ -125,7 +125,7 @@ serve conn socket = do
 
 
 handleRequest :: SQL.Connection -> String -> IO String
-handleRequest conn request =  
+handleRequest conn request =
   case lines request of
     [] ->  return (badRequest400 "Empty request")
     (firstLine:requestLines) -> case words firstLine of
@@ -138,14 +138,14 @@ data RegisterStatus = RegisterSucces | UserAlreadyExists | ActivationWrong | Act
 
 handleRoute_ :: SQL.Connection -> String -> String -> [String] -> IO String
 handleRoute_ conn method path rest = do
-  putStrLn $ "Handling route [" ++ method ++ "] " ++ show path 
+  putStrLn $ "Handling route [" ++ method ++ "] " ++ show path
   handleRoute conn method path rest
 
 
 handleRoute :: SQL.Connection -> String -> String -> [String] -> IO String
 handleRoute _ "GET" "/" _ = do
   page <- readFile "index.html"
-  return $ ok200HTML page 
+  return $ ok200HTML page
 
 -- handleRoute conn "GET" _ _ = do
 --     return (notFound404 "Not Found")
@@ -198,7 +198,7 @@ safeQueryT action = ExceptT $ safeQuery action
 register :: SQL.Connection -> String -> String -> String -> ExceptT RegisterStatus IO RegisterStatus
 register conn activation username password = do
 
-  userRows <- safeQueryT $ 
+  userRows <- safeQueryT $
     SQL.query_ conn (DS.fromString "SELECT user_id, username FROM users")
     :: ExceptT RegisterStatus IO [(Int, String)]
 
@@ -227,7 +227,7 @@ register conn activation username password = do
         throwE ActivationExpired
 
   (passwordHashed, salt) <- liftIO $ hashAndSaltPassword password
-  _ <- safeQueryT $ 
+  _ <- safeQueryT $
     SQL.execute conn
       (DS.fromString "INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)")
       (username, passwordHashed, salt)
@@ -244,14 +244,9 @@ register conn activation username password = do
 
 hashAndSaltPassword :: String -> IO (BS.ByteString, BS.ByteString)
 hashAndSaltPassword password = do
-  salt <- generateSalt
+  salt <- CR.getRandomBytes 32
   let hashed = BA.convert (Hash.hash (salt <> BS8.pack password) :: Hash.Digest Hash.SHA3_256)
   return (hashed, salt)
-  where
-    generateSalt = do
-      g <- CR.getSystemDRG
-      let (salt, _) = CR.randomBytesGenerate 32 g
-      return salt
 
 
 httpResponse :: String -> [(String, String)] -> String -> String
@@ -263,49 +258,49 @@ httpResponse status headers body =
 
 
 ok200 :: String -> String
-ok200 body = httpResponse "200 OK" 
+ok200 body = httpResponse "200 OK"
   [
     ("Content-Type", "text/plain"),
     ("Content-Length", show (length body))
   ] body
 
 ok200HTML :: String -> String
-ok200HTML body = httpResponse "200 OK" 
+ok200HTML body = httpResponse "200 OK"
   [
     ("Content-Type", "text/html"),
     ("Content-Length", show (length body))
   ] body
 
 ok200CORS :: String
-ok200CORS = httpResponse "200 OK" 
+ok200CORS = httpResponse "200 OK"
   [
     ("Access-Control-Allow-Origin", "http://127.0.0.1:8231"),
-    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS"), 
+    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS"),
     ("Access-Control-Allow-Headers", "Content-Type")
   ] ""
 
 badRequest400 :: String -> String
-badRequest400 = httpResponse "400 Bad Request" 
+badRequest400 = httpResponse "400 Bad Request"
   [
     ("Content-Type", "text/plain")
   ]
 
 notFound404 :: String -> String
-notFound404 body = httpResponse "404 Not Found" 
+notFound404 body = httpResponse "404 Not Found"
   [
     ("Content-Type", "text/plain") ,
     ("Content-Length", show (length body))
   ] body
 
 conflict409 :: String -> String
-conflict409 body = httpResponse "409 Conflict" 
+conflict409 body = httpResponse "409 Conflict"
   [
     ("Content-Type", "text/plain") ,
     ("Content-Length", show (length body))
   ] body
 
 serverError500 :: String -> String
-serverError500 body = httpResponse "500 Server Error" 
+serverError500 body = httpResponse "500 Server Error"
   [
     ("Content-Type", "text/plain") ,
     ("Content-Length", show (length body))
@@ -326,7 +321,7 @@ genActivationCode conn expires_in = do
   where
     chars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']
     maxRetries = 5
-    
+
     randomString n = replicateM n $ do
       i <- randomRIO (0, length chars - 1)
       return (chars !! i)

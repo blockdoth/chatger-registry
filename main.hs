@@ -178,9 +178,6 @@ handleRoute _ "GET" _ _ = do
       return $ serverError500 "Failed to find requested page"
 
 
-handleRoute _ "OPTIONS" _ _ = do
-  return ok200CORS
-
 handleRoute conn "POST" "/register" lines = do
   case parseBody lines of
     Nothing -> return (badRequest400 "Malformed request")
@@ -313,14 +310,6 @@ ok200Binary mimeType body = httpResponseBS "200 OK"
     ("Content-Type", mimeType),
     ("Content-Length", show (BS.length body))
   ] body
-
-ok200CORS :: Response
-ok200CORS = httpResponse "200 OK"
-  [
-    ("Access-Control-Allow-Origin", "http://127.0.0.1:8231"),
-    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS"),
-    ("Access-Control-Allow-Headers", "Content-Type")
-  ] ""
 
 badRequest400 :: String -> Response
 badRequest400 body = httpResponse "400 Bad Request"

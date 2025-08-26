@@ -49,7 +49,8 @@
 
             installPhase = ''
               mkdir -p $out/bin
-              cp regger $out/bin/
+              cp index.html $out/bin
+              cp regger $out/bin
             '';
           };
       };        

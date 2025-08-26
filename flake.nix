@@ -49,7 +49,7 @@
 
             installPhase = ''
               mkdir -p $out/bin
-              cp regger index.html JetBrainsMono-Regular.woff2 $out/bin
+              cp regger index.html JetBrainsMono-Regular.woff2 favicon.png $out/bin
             '';
           };
       };        

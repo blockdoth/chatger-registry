@@ -153,14 +153,6 @@ handleRoute_ conn method path rest = do
 
 
 handleRoute :: SQL.Connection -> String -> String -> [String] -> IO Response
-handleRoute _ "GET" "/" _ = do
-  result <- try $ readFile "index.html":: IO (Either IOError String)
-  case result of
-    Right page -> return $ ok200HTML page
-    Left err -> do
-      putStrLn $ "Failed to read index.html: " ++ show err
-      return $ serverError500 "Failed to find requested page"
-
 handleRoute _ "GET" "/JetBrainsMono-Regular.woff2" _ = do
   result <- try $ BS.readFile "JetBrainsMono-Regular.woff2":: IO (Either IOError BS.ByteString)
   case result of
@@ -168,6 +160,22 @@ handleRoute _ "GET" "/JetBrainsMono-Regular.woff2" _ = do
     Left err -> do
       putStrLn $ "Failed to load " ++ show err
       return $ serverError500 "Failed to load font"
+
+handleRoute _ "GET" "/favicon.ico" _ = do
+  result <- try $ BS.readFile "favicon.png":: IO (Either IOError BS.ByteString)
+  case result of
+    Right font -> return $ ok200Binary "image/png" font
+    Left err -> do
+      putStrLn $ "Failed to load favicon" ++ show err
+      return $ serverError500 "Failed to load favicon"
+
+handleRoute _ "GET" _ _ = do
+  result <- try $ readFile "index.html":: IO (Either IOError String)
+  case result of
+    Right page -> return $ ok200HTML page
+    Left err -> do
+      putStrLn $ "Failed to read index.html: " ++ show err
+      return $ serverError500 "Failed to find requested page"
 
 
 handleRoute _ "OPTIONS" _ _ = do

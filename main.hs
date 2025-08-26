@@ -5,7 +5,7 @@ import Control.Monad (unless, forever, void)
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString as BS
 import qualified Data.List.NonEmpty as NE
-import Network.Socket
+import Network.Socket hiding (defaultPort)
 import Network.Socket.ByteString (recv, send)
 import Data.List (isPrefixOf)
 import Text.Parsec (parse)
@@ -36,10 +36,10 @@ recvBufferSize :: Int
 recvBufferSize = 1024
 
 gracefulCloseTimeout :: Int
-gracefulCloseTimeout = 5000
+gracefulCloseTimeout = 1000
 
-port :: String
-port = "8231"
+defaultPort :: String
+defaultPort = "8231"
 
 databaseDefaultPath :: String
 databaseDefaultPath = "./penger.db"
@@ -49,13 +49,20 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ("serve":rest) -> withDB (getDbPath rest) $ \conn -> runTCPServer Nothing port (serve conn)
-    ("gen":rest)   -> withDB (getDbPath rest) $ \conn -> genActivationCode conn 7
+    ("serve":rest) -> withDB (getDbPath rest) $ \conn -> runTCPServer (getPort rest)  (serve conn)
+    ("gen"  :rest) -> withDB (getDbPath rest) $ \conn -> genActivationCode conn 7
     _              -> usage
   where
-    usage = putStrLn "Incorrect command, usage: regger <gen|serve> [-db <path>]"
+    usage = putStrLn "Incorrect command, usage: regger <gen|serve> [-db <path>] [-p <port>]"
+    
     getDbPath ("-db":path:_) = path
+    getDbPath (_:_:rest)     = getDbPath rest
     getDbPath _              = databaseDefaultPath
+    
+    getPort   ("-p":port:_)  = port
+    getPort   (_:_:rest)     = getPort rest
+    getPort   _              = defaultPort 
+
 
 withDB :: String -> (SQL.Connection -> IO ()) -> IO ()
 withDB dbPath action = do
@@ -91,15 +98,15 @@ withDB dbPath action = do
         Right _ -> do
           return True
 
-runTCPServer :: Maybe HostName -> ServiceName -> (Socket -> IO a) -> IO a
-runTCPServer hostname port handleConn = do
+runTCPServer :: ServiceName -> (Socket -> IO a) -> IO a
+runTCPServer port handleConn = do
     putStrLn $ "Started listening on port " ++ port
     addr <- resolve
     E.bracket (open addr) close loop
   where
     resolve = do
       let hints = defaultHints {addrFlags = [AI_PASSIVE], addrSocketType = Stream }
-      addrs <- getAddrInfo (Just hints) hostname (Just port)
+      addrs <- getAddrInfo (Just hints) Nothing (Just port)
       case addrs of
         []      -> error "No addresses found"
         (x:_)   -> return x

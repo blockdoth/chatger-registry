@@ -21,8 +21,7 @@ import System.Random
 import Control.Monad.Trans.Except
 import Control.Monad.IO.Class (liftIO)
 import System.Directory (doesFileExist)
-
-
+import System.IO (hSetBuffering, BufferMode(..), stdout, stderr)
 import qualified Crypto.Hash as Hash
 import qualified Crypto.Random as CR
 import qualified Data.ByteArray as BA
@@ -47,6 +46,8 @@ databaseDefaultPath = "./penger.db"
 
 main :: IO ()
 main = do
+  hSetBuffering stdout LineBuffering
+  hSetBuffering stderr LineBuffering
   args <- getArgs
   case args of
     ("serve":rest) -> withDB (getDbPath rest) $ \conn -> runTCPServer "127.0.0.1" (getPort rest) (serve conn)

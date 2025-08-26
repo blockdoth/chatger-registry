@@ -26,7 +26,7 @@ import System.Directory (doesFileExist)
 import qualified Crypto.Hash as Hash
 import qualified Crypto.Random as CR
 import qualified Data.ByteArray as BA
-import Text.XHtml (password)
+import Text.XHtml (password, legend)
 
 
 maxConn :: Int
@@ -54,14 +54,14 @@ main = do
     _              -> usage
   where
     usage = putStrLn "Incorrect command, usage: regger <gen|serve> [-db <path>] [-p <port>]"
-    
+
     getDbPath ("-db":path:_) = path
     getDbPath (_:_:rest)     = getDbPath rest
     getDbPath _              = databaseDefaultPath
-    
+
     getPort   ("-p":port:_)  = port
     getPort   (_:_:rest)     = getPort rest
-    getPort   _              = defaultPort 
+    getPort   _              = defaultPort
 
 
 withDB :: String -> (SQL.Connection -> IO ()) -> IO ()
@@ -127,7 +127,7 @@ serve conn socket = do
   unless (BS8.null msg) $ do
     let request = BS8.unpack msg
     response <- handleRequest conn request
-    case response of 
+    case response of
       BinaryResponse bin -> send socket bin
       TextResponse text -> send socket (BS8.pack text)
     serve conn socket
@@ -140,9 +140,9 @@ handleRequest conn request =
     (firstLine:requestLines) -> case words firstLine of
       (method:path:_) -> handleRoute_ conn method path requestLines
       _ -> return (badRequest400 "Malformed request")
-
+  
 data RegisterStatus = RegisterSucces | UserAlreadyExists | ActivationWrong | ActivationExpired | ActivationAlreadyUsed | DatabaseError
-  deriving (Show, Eq, Enum)
+  deriving (Show, Enum)
 
 data Response = TextResponse String | BinaryResponse BS.ByteString
 
@@ -150,7 +150,6 @@ handleRoute_ :: SQL.Connection -> String -> String -> [String] -> IO Response
 handleRoute_ conn method path rest = do
   putStrLn $ "Handling route [" ++ method ++ "] " ++ show path
   handleRoute conn method path rest
-
 
 handleRoute :: SQL.Connection -> String -> String -> [String] -> IO Response
 handleRoute _ "GET" "/JetBrainsMono-Regular.woff2" _ = do
@@ -265,7 +264,7 @@ register conn activation username password = do
       (DS.fromString "UPDATE activation_codes SET  used = true WHERE code = ?")
       (SQL.Only activation)
 
-  liftIO $ putStrLn $ "\tRegistered user" ++ username
+  liftIO $ putStrLn $ "\tRegistered user " ++ username
 
   return RegisterSucces
 
@@ -309,8 +308,8 @@ ok200HTML body = httpResponse "200 OK"
 
 ok200Binary :: String -> BS.ByteString -> Response
 ok200Binary mimeType body = httpResponseBS "200 OK"
-  [ 
-    ("Content-Type", mimeType), 
+  [
+    ("Content-Type", mimeType),
     ("Content-Length", show (BS.length body))
   ] body
 

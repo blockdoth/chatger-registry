@@ -11,9 +11,9 @@
           const data = {
               activation: formData.get('activation'),
               username: formData.get('username'),
-              password: formData.get('password')
+              password: formData.get('password'),
           };
-    
+
           try {
               const response = await fetch('http://127.0.0.1:8231/register', {
                   method: 'POST',
@@ -36,18 +36,67 @@
       });
     </script>
     <style>
+      @font-face {
+        font-family: 'JetBrains Mono';
+        src: url('JetBrainsMono-Regular.woff2') format('woff2');
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: 'JetBrains Mono', monospace;
+      }
 
+      body {
+        background-color: black;
+        font-family: Arial, sans-serif;
+      }
+       
+      h1 {
+        color: white;
+        text-align: center;
+        margin-bottom: 10px;
+      }
+
+      #container {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+
+      #input-form, #register-button {
+        padding: 10px;
+        padding-bottom: 5px;
+        padding-top: 5px;
+        margin: 5px;
+        background-color: black;
+        border-color: white;
+        border-radius: 0;
+        border-width: 1;
+        width: 365px;
+        color: white;
+        box-shadow: none; 
+        outline: none;
+        font-size: 16px;
+      }
+
+      #register-button {
+          cursor: pointer;
+      }
+       
     </style>
 </head>
 <body>
-
-<h1>Register to chatger</h1>
-<form id="register">
-    <input type="text" name="activation" placeholder="activation code" required/><br/>
-    <input type="text" name="username" placeholder="username" required/><br/>
-    <input type="password" name="password" placeholder="password" required/><br/>
-    <button type="submit">Submit</button>
-</form>
-
+  <div id="container">
+    <h1>register to chatger</h1>
+    <form id="register">
+        <input id="input-form" type="text" name="activation" placeholder="activation code" required/><br/>
+        <input id="input-form" type="text" name="username" placeholder="username" required/><br/>
+        <input id="input-form" type="password" name="password" placeholder="password" required/><br/>
+        <button id="register-button" type="submit">register</button>
+    </form>
+  </div>
 </body>
 </html> 

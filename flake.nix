@@ -49,8 +49,7 @@
 
             installPhase = ''
               mkdir -p $out/bin
-              cp index.html $out/bin
-              cp regger $out/bin
+              cp regger index.html JetBrainsMono-Regular.woff2 $out/bin
             '';
           };
       };        

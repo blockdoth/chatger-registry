@@ -127,11 +127,13 @@ serve conn socket = do
   unless (BS8.null msg) $ do
     let request = BS8.unpack msg
     response <- handleRequest conn request
-    send socket (BS8.pack response)
+    case response of 
+      BinaryResponse bin -> send socket bin
+      TextResponse text -> send socket (BS8.pack text)
     serve conn socket
 
 
-handleRequest :: SQL.Connection -> String -> IO String
+handleRequest :: SQL.Connection -> String -> IO Response
 handleRequest conn request =
   case lines request of
     [] ->  return (badRequest400 "Empty request")
@@ -142,14 +144,15 @@ handleRequest conn request =
 data RegisterStatus = RegisterSucces | UserAlreadyExists | ActivationWrong | ActivationExpired | ActivationAlreadyUsed | DatabaseError
   deriving (Show, Eq, Enum)
 
+data Response = TextResponse String | BinaryResponse BS.ByteString
 
-handleRoute_ :: SQL.Connection -> String -> String -> [String] -> IO String
+handleRoute_ :: SQL.Connection -> String -> String -> [String] -> IO Response
 handleRoute_ conn method path rest = do
   putStrLn $ "Handling route [" ++ method ++ "] " ++ show path
   handleRoute conn method path rest
 
 
-handleRoute :: SQL.Connection -> String -> String -> [String] -> IO String
+handleRoute :: SQL.Connection -> String -> String -> [String] -> IO Response
 handleRoute _ "GET" "/" _ = do
   result <- try $ readFile "index.html":: IO (Either IOError String)
   case result of
@@ -158,9 +161,14 @@ handleRoute _ "GET" "/" _ = do
       putStrLn $ "Failed to read index.html: " ++ show err
       return $ serverError500 "Failed to find requested page"
 
+handleRoute _ "GET" "/JetBrainsMono-Regular.woff2" _ = do
+  result <- try $ BS.readFile "JetBrainsMono-Regular.woff2":: IO (Either IOError BS.ByteString)
+  case result of
+    Right font -> return $ ok200Binary "font/woff2" font
+    Left err -> do
+      putStrLn $ "Failed to load " ++ show err
+      return $ serverError500 "Failed to load font"
 
--- handleRoute conn "GET" _ _ = do
---     return (notFound404 "Not Found")
 
 handleRoute _ "OPTIONS" _ _ = do
   return ok200CORS
@@ -261,29 +269,44 @@ hashAndSaltPassword password = do
   return (hashed, salt)
 
 
-httpResponse :: String -> [(String, String)] -> String -> String
-httpResponse status headers body =
+httpResponse :: String -> [(String, String)] -> String -> Response
+httpResponse status headers body = TextResponse $
     "HTTP/1.1 " ++ status ++ "\r\n"
     ++ concatMap (\(k,v) -> k ++ ": " ++ v ++ "\r\n") headers
     ++ "\r\n"
     ++ body
 
+httpResponseBS :: String -> [(String, String)] -> BS.ByteString -> Response
+httpResponseBS status headers body = BinaryResponse $
+    let headerStr = "HTTP/1.1 " ++ status ++ "\r\n"
+                    ++ concatMap (\(k,v) -> k ++ ": " ++ v ++ "\r\n") headers
+                    ++ "\r\n"
+    in BS8.pack headerStr `BS.append` body
 
-ok200 :: String -> String
-ok200 body = httpResponse "200 OK"
+
+ok200 :: String -> Response
+ok200 body =  httpResponse "200 OK"
   [
     ("Content-Type", "text/plain"),
     ("Content-Length", show (length body))
   ] body
 
-ok200HTML :: String -> String
+ok200HTML :: String -> Response
 ok200HTML body = httpResponse "200 OK"
   [
     ("Content-Type", "text/html"),
     ("Content-Length", show (length body))
   ] body
 
-ok200CORS :: String
+
+ok200Binary :: String -> BS.ByteString -> Response
+ok200Binary mimeType body = httpResponseBS "200 OK"
+  [ 
+    ("Content-Type", mimeType), 
+    ("Content-Length", show (BS.length body))
+  ] body
+
+ok200CORS :: Response
 ok200CORS = httpResponse "200 OK"
   [
     ("Access-Control-Allow-Origin", "http://127.0.0.1:8231"),
@@ -291,27 +314,27 @@ ok200CORS = httpResponse "200 OK"
     ("Access-Control-Allow-Headers", "Content-Type")
   ] ""
 
-badRequest400 :: String -> String
-badRequest400 = httpResponse "400 Bad Request"
+badRequest400 :: String -> Response
+badRequest400 body = httpResponse "400 Bad Request"
   [
     ("Content-Type", "text/plain")
-  ]
+  ] body
 
-notFound404 :: String -> String
+notFound404 :: String -> Response
 notFound404 body = httpResponse "404 Not Found"
   [
     ("Content-Type", "text/plain") ,
     ("Content-Length", show (length body))
   ] body
 
-conflict409 :: String -> String
+conflict409 :: String -> Response
 conflict409 body = httpResponse "409 Conflict"
   [
     ("Content-Type", "text/plain") ,
     ("Content-Length", show (length body))
   ] body
 
-serverError500 :: String -> String
+serverError500 :: String -> Response
 serverError500 body = httpResponse "500 Server Error"
   [
     ("Content-Type", "text/plain") ,

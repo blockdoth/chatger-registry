@@ -49,7 +49,7 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ("serve":rest) -> withDB (getDbPath rest) $ \conn -> runTCPServer (getPort rest)  (serve conn)
+    ("serve":rest) -> withDB (getDbPath rest) $ \conn -> runTCPServer "127.0.0.1" (getPort rest) (serve conn)
     ("gen"  :rest) -> withDB (getDbPath rest) $ \conn -> genActivationCode conn 7
     _              -> usage
   where
@@ -98,15 +98,15 @@ withDB dbPath action = do
         Right _ -> do
           return True
 
-runTCPServer :: ServiceName -> (Socket -> IO a) -> IO a
-runTCPServer port handleConn = do
-    putStrLn $ "Started listening on port " ++ port
+runTCPServer :: HostName -> ServiceName -> (Socket -> IO a) -> IO a
+runTCPServer hostname port handleConn = do
+    putStrLn $ "Started listening on " ++ hostname ++ ":"++ port
     addr <- resolve
     E.bracket (open addr) close loop
   where
     resolve = do
       let hints = defaultHints {addrFlags = [AI_PASSIVE], addrSocketType = Stream }
-      addrs <- getAddrInfo (Just hints) Nothing (Just port)
+      addrs <- getAddrInfo (Just hints) (Just hostname) (Just port)
       case addrs of
         []      -> error "No addresses found"
         (x:_)   -> return x
@@ -151,8 +151,13 @@ handleRoute_ conn method path rest = do
 
 handleRoute :: SQL.Connection -> String -> String -> [String] -> IO String
 handleRoute _ "GET" "/" _ = do
-  page <- readFile "index.html"
-  return $ ok200HTML page
+  result <- try $ readFile "index.html":: IO (Either IOError String)
+  case result of
+    Right page -> return $ ok200HTML page
+    Left err -> do
+      putStrLn $ "Failed to read index.html: " ++ show err
+      return $ serverError500 "Failed to find requested page"
+
 
 -- handleRoute conn "GET" _ _ = do
 --     return (notFound404 "Not Found")

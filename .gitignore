@@ -1,3 +1,4 @@
 .envrc
 .direnv
 ./penger.db 
+./result
